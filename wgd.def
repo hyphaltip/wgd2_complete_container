@@ -1,0 +1,88 @@
+# wgd 2.0.38 — complete distribution (mirror of ./Dockerfile)
+#
+# Apptainer definition file for LOCAL HPCC builds (no docker/buildkit daemon on
+# the cluster). The Dockerfile is the canonical source and what GitHub Actions
+# publishes to ghcr; keep the two in sync.
+#
+# Build:
+#   module load apptainer
+#   apptainer build --fakeroot -F wgd-2.0.38.sif wgd.def
+#   # or: ./pull_sif.sh
+Bootstrap: docker
+From: mambaorg/micromamba:2.0.5-ubuntu22.04
+
+%files
+    requirements-wgd.txt /opt/wgd/requirements-wgd.txt
+
+%post
+    #!/bin/bash
+    set -eu
+    export MAMBA_ROOT_PREFIX=/opt/conda
+    export PATH="/opt/conda/bin:$PATH"
+    export BIO_ROOT=/opt/bio
+
+    # 1. Build toolchain + base system deps
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cmake autoconf automake libtool pkg-config \
+        perl libpng-dev wget git ca-certificates \
+        && rm -rf /var/lib/apt/lists/*
+
+    # 2. Conda: python 3.9 + wgd's external CLIs from bioconda
+    micromamba install -y -n base -c conda-forge -c bioconda \
+        python=3.9 diamond mcl mafft paml fasttree muscle phyml \
+        && micromamba clean -ay
+
+    # 3. wgd + relaxed python deps (see requirements-wgd.txt)
+    mkdir -p /opt/wgd
+    python -m pip install --no-cache-dir --no-deps wgd==2.0.38
+    python -m pip install --no-cache-dir --requirement /opt/wgd/requirements-wgd.txt
+    # wgd's cli.py calls pkg_resources.require("wgd"), which validates the
+    # original hard-pinned Requires-Dist; relax == to >= and drop the GUI-only
+    # pyqt deps so the installed set is accepted.
+    python - <<'PY'
+import glob, re
+paths = (glob.glob('/opt/conda/lib/python3.9/site-packages/wgd-*.dist-info/METADATA')
+         + glob.glob('/opt/conda/lib/python3.9/site-packages/wgd.egg-info/requires.txt'))
+for path in paths:
+    s = open(path).read()
+    s = re.sub(r'(?m)^Requires-Dist: pyqt.*\n', '', s)
+    s = s.replace('==', '>=')
+    open(path, 'w').write(s)
+    print("relaxed", path)
+PY
+
+    # 4. cimfomfa/tingea + zoem (autotools release tarballs; 21-341 = HPCC tags)
+    mkdir -p /tmp/micans && cd /tmp/micans
+    wget -q http://micans.org/cimfomfa/src/cimfomfa-21-341.tar.gz
+    tar xzf cimfomfa-21-341.tar.gz
+    ( cd cimfomfa-21-341 \
+      && ./configure --prefix="${BIO_ROOT}" \
+      && make -j"$(nproc)" \
+      && make install )
+    wget -q http://micans.org/zoem/src/zoem-21-341.tar.gz
+    tar xzf zoem-21-341.tar.gz
+    ( cd zoem-21-341 \
+      && ./configure CFLAGS="-I${BIO_ROOT}/include -fcommon" LDFLAGS="-L${BIO_ROOT}/lib" \
+             --prefix="${BIO_ROOT}" \
+      && make -j"$(nproc)" \
+      && make install )
+    rm -rf /tmp/micans
+
+    # 5. i-ADHoRe 3.0 (CMake; matches HPCC module wgd/2 toolchain)
+    cd /tmp
+    git clone --depth 1 --branch 3.0 https://github.com/VIB-PSB/i-ADHoRe.git /tmp/i-ADHoRe
+    mkdir /tmp/i-ADHoRe/build
+    ( cd /tmp/i-ADHoRe/build \
+      && cmake .. -DCMAKE_INSTALL_PREFIX="${BIO_ROOT}" \
+      && make -j"$(nproc)" \
+      && make install )
+    rm -rf /tmp/i-ADHoRe
+
+%environment
+    export MAMBA_ROOT_PREFIX=/opt/conda
+    export BIO_ROOT=/opt/bio
+    export PATH="${BIO_ROOT}/bin:/opt/conda/bin:$PATH"
+    export PERL5LIB="${BIO_ROOT}/API"
+
+%runscript
+    exec wgd "$@"
