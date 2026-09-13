@@ -27,7 +27,7 @@ kiwisolver==1.2.0
 MarkupSafe==1.1.1
 matplotlib==3.3.4
 numpy==1.19.5
-numexpr==2.7.3
+numexpr==2.8.5
 packaging==20.4
 pandas==1.4.4
 Pillow==12.3.0
