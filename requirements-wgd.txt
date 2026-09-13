@@ -30,7 +30,7 @@ numpy==1.19.5
 numexpr==2.7.3
 packaging==20.4
 pandas==1.4.4
-Pillow==8.4.0
+Pillow==12.3.0
 pluggy==0.13.1
 plumbum==1.6.9
 progressbar2==3.51.4
