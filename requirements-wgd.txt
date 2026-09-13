@@ -38,7 +38,7 @@ psutil==5.7.0
 py==1.9.0
 Pygments==2.7.2
 pyparsing==2.4.7
-pytest==6.1.2
+pytest==9.0.3
 python-dateutil==2.8.2
 python-utils==2.4.0
 pytz==2020.1
